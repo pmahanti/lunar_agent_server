@@ -453,7 +453,9 @@ def build_pdf(la, lo, result):
         "pub":     S("pub", fontName="Helvetica-Oblique", fontSize=8.5, textColor=C["muted"], spaceBefore=6),
         "lroc_h":  S("lroc_h", fontName="Helvetica-Bold", fontSize=8.5, textColor=C["accent"], spaceAfter=4, spaceBefore=10),
         "lroc_t":  S("lroc_t", fontSize=8.5, textColor=HexColor("#1a6ebd"), spaceAfter=2, leading=12),
-        "lroc_d":  S("lroc_d", fontSize=7.5, textColor=C["muted"], spaceAfter=6),
+        "lroc_d":       S("lroc_d", fontSize=7.5, textColor=C["muted"], spaceAfter=2),
+        "lroc_excerpt": S("lroc_x", fontName="Helvetica-Oblique", fontSize=8, textColor=C["body"], leading=12, spaceAfter=2),
+        "lroc_url":     S("lroc_url", fontSize=7, textColor=C["muted"], spaceAfter=8),
     }
 
     buf = BytesIO()
