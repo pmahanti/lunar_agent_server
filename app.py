@@ -56,19 +56,67 @@ def save_query(la, lo, location_name, result):
     except Exception:
         pass
 
+# Moon radius for polar stereo conversions
+_MOON_R = 1737400.0
+
+def _polar_stereo_bbox(la, lo, radius_km, north):
+    """Convert lat/lon to polar stereographic BBOX in metres."""
+    import math
+    lat_r = math.radians(la); lon_r = math.radians(lo)
+    if north:
+        k = 2*_MOON_R / (1 + math.sin(lat_r))
+        x =  k * math.cos(lat_r) * math.sin(lon_r)
+        y = -k * math.cos(lat_r) * math.cos(lon_r)
+    else:
+        k = 2*_MOON_R / (1 - math.sin(lat_r))
+        x =  k * math.cos(lat_r) * math.sin(lon_r)
+        y =  k * math.cos(lat_r) * math.cos(lon_r)
+    d = radius_km * 1000
+    return x-d, y-d, x+d, y+d
+
+def _fetch_wms(bbox, srs, width=480, height=300):
+    """Fetch WMS tile, return PNG bytes or raise."""
+    url = (f"https://wms.im-ldi.com/wms?SERVICE=WMS&VERSION=1.1.1"
+           f"&REQUEST=GetMap&LAYERS=luna_wac_global&BBOX={bbox}"
+           f"&WIDTH={width}&HEIGHT={height}&SRS={srs}&FORMAT=image/png&STYLES=")
+    req = urllib.request.Request(url, headers={"User-Agent": "LunarGeoAgent/1.0"})
+    with urllib.request.urlopen(req, timeout=12) as r:
+        data = r.read()
+    if data[:4] != b'\x89PNG':
+        raise ValueError("WMS did not return PNG")
+    return data
+
 @app.route("/map-tile")
 def map_tile():
     try:
         la = float(request.args.get("lat", 0))
         lo = float(request.args.get("lon", 0))
         d  = float(request.args.get("d", 2.5))
-        bbox = f"{lo-d},{la-d},{lo+d},{la+d}"
-        url = (f"https://wms.im-ldi.com/wms?SERVICE=WMS&VERSION=1.1.1"
-               f"&REQUEST=GetMap&LAYERS=luna_wac_global&BBOX={bbox}"
-               f"&WIDTH=480&HEIGHT=300&SRS=EPSG:4326&FORMAT=image/png&STYLES=")
-        req = urllib.request.Request(url, headers={"User-Agent": "LunarGeoAgent/1.0"})
-        with urllib.request.urlopen(req, timeout=12) as r:
-            data = r.read()
+
+        polar = abs(la) >= 70
+        north = la > 0
+
+        if polar:
+            # Polar stereographic — radius in km proportional to zoom level
+            radius_km = max(150, d * 60)
+            x1,y1,x2,y2 = _polar_stereo_bbox(la, lo, radius_km, north)
+            bbox = f"{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}"
+            srs  = "IAU2000:30120" if not north else "IAU2000:30110"
+            # Retry once; fall back to geographic if server rejects
+            try:
+                data = _fetch_wms(bbox, srs, 480, 480)
+            except Exception:
+                try:
+                    fallback_srs = "IAU2000:30120"  # try south-pole SRS for north too
+                    data = _fetch_wms(bbox, fallback_srs, 480, 480)
+                except Exception:
+                    # Last resort: tight geographic bbox
+                    geo_bbox = f"{lo-d},{max(-90,la-d)},{lo+d},{min(90,la+d)}"
+                    data = _fetch_wms(geo_bbox, "EPSG:4326", 480, 480)
+        else:
+            bbox = f"{lo-d},{la-d},{lo+d},{la+d}"
+            data = _fetch_wms(bbox, "EPSG:4326", 480, 300)
+
         return Response(data, mimetype="image/png",
                         headers={"Cache-Control": "public, max-age=3600"})
     except Exception as e:
@@ -479,20 +527,33 @@ def build_pdf(la, lo, result):
 
     # Map image from LunaServ
     try:
-        d = 2.5
-        bbox = f"{lo-d},{la-d},{lo+d},{la+d}"
+        polar = abs(la) >= 70
+        north_pole = la > 0
+        if polar:
+            radius_km = 200
+            x1,y1,x2,y2 = _polar_stereo_bbox(la, lo, radius_km, north_pole)
+            bbox = f"{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}"
+            srs  = "IAU2000:30120" if not north_pole else "IAU2000:30110"
+            proj_note = "Polar stereographic (IAU2000)"
+        else:
+            d = 2.5
+            bbox = f"{lo-d},{la-d},{lo+d},{la+d}"
+            srs  = "EPSG:4326"
+            proj_note = "Geographic (EPSG:4326)"
         url = (f"https://wms.im-ldi.com/wms?SERVICE=WMS&VERSION=1.1.1"
                f"&REQUEST=GetMap&LAYERS=luna_wac_global&BBOX={bbox}"
-               f"&WIDTH=900&HEIGHT=560&SRS=EPSG:4326&FORMAT=image/png&STYLES=")
+               f"&WIDTH=900&HEIGHT=560&SRS={srs}&FORMAT=image/png&STYLES=")
         req = urllib.request.Request(url, headers={"User-Agent": "LunarGeoAgent/1.0"})
         with urllib.request.urlopen(req, timeout=15) as r:
             img_data = r.read()
+        if img_data[:4] != b'\x89PNG':
+            raise ValueError("WMS did not return PNG")
         tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         tmp.write(img_data); tmp.close()
         story.append(Image(tmp.name, width=W, height=W*0.56))
         story.append(Paragraph(
             f"LROC WAC Global Mosaic — {loc_name}. "
-            f"Field of view ~{d*2*30:.0f} km. "
+            f"Projection: {proj_note}. "
             "[NASA/GSFC/Arizona State University | LunaServ WMS]",
             ST["caption"]))
         tmp_to_delete = tmp.name  # delete AFTER doc.build()
