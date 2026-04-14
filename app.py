@@ -63,8 +63,8 @@ def map_tile():
         lo = float(request.args.get("lon", 0))
         d  = float(request.args.get("d", 2.5))
         bbox = f"{lo-d},{la-d},{lo+d},{la+d}"
-        url = (f"https://lunaserv.im-ldi.com/wms?SERVICE=WMS&VERSION=1.1.1"
-               f"&REQUEST=GetMap&LAYERS=lroc_wac_global&BBOX={bbox}"
+        url = (f"https://wms.im-ldi.com/wms?SERVICE=WMS&VERSION=1.1.1"
+               f"&REQUEST=GetMap&LAYERS=luna_wac_global&BBOX={bbox}"
                f"&WIDTH=480&HEIGHT=300&SRS=EPSG:4326&FORMAT=image/png&STYLES=")
         req = urllib.request.Request(url, headers={"User-Agent": "LunarGeoAgent/1.0"})
         with urllib.request.urlopen(req, timeout=12) as r:
