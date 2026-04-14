@@ -2,3 +2,5 @@ flask
 flask-cors
 anthropic
 gunicorn
+beautifulsoup4
+reportlab
