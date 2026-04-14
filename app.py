@@ -78,26 +78,29 @@ HTML = r"""<!DOCTYPE html>
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
   @media (max-width: 640px) { .panels { grid-template-columns: 1fr; } }
   .panel { background: #fff; border: 0.5px solid #e8e8e5; border-radius: 12px; padding: 1rem; min-height: 320px; }
-  .panel-label { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #aaa; margin-bottom: 12px; }
+  .panel-label { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #aaa; margin-bottom: 10px; }
 
   /* Word cloud */
-  #cloudPanel { position: relative; overflow: hidden; min-height: 320px; }
-  #cloudCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .cloud-empty { font-size: 13px; color: #bbb; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); white-space: nowrap; }
-  .cloud-word {
-    position: absolute;
-    font-family: system-ui, sans-serif;
-    font-weight: 500;
-    opacity: 0;
-    transform: scale(0.5);
-    transition: opacity 0.5s ease, transform 0.5s ease;
-    pointer-events: none;
-    white-space: nowrap;
-    line-height: 1;
+  #cloudBox {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: flex-start;
+    gap: 6px 8px;
+    min-height: 280px;
   }
-  .cloud-word.visible { opacity: 1; transform: scale(1); }
+  .cloud-empty { font-size: 13px; color: #bbb; width: 100%; text-align: center; padding-top: 100px; }
+  .cw {
+    display: inline-block;
+    font-weight: 500;
+    line-height: 1.2;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+  .cw.show { opacity: 1; transform: translateY(0); }
 
-  /* Briefing panel */
+  /* Briefing */
   .empty { font-size: 13px; color: #bbb; }
   .briefing-title { font-size: 15px; font-weight: 500; margin-bottom: 12px; }
   .named-feature-box { margin-bottom: 12px; background: #F0FDF4; border: 0.5px solid #86EFAC; border-radius: 8px; padding: 8px 10px; }
@@ -127,10 +130,13 @@ HTML = r"""<!DOCTYPE html>
   </div>
   <div class="err" id="coordErr"></div>
   <div class="agent-err" id="agentErr"></div>
+
   <div class="panels">
-    <div class="panel" id="cloudPanel">
+    <div class="panel">
       <div class="panel-label">Keyword cloud</div>
-      <div id="cloudEmpty" class="cloud-empty">Words will appear as the agent runs&hellip;</div>
+      <div id="cloudBox">
+        <div class="cloud-empty" id="cloudEmpty">Words will appear as the agent runs&hellip;</div>
+      </div>
     </div>
     <div class="panel briefing-panel">
       <div class="panel-label">Geologic briefing</div>
@@ -138,6 +144,7 @@ HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 </div>
+
 <script>
 const PRESETS = [
   { label: "Reiner Gamma", lat: 7.37, lon: -59.02 },
@@ -148,136 +155,90 @@ const PRESETS = [
   { label: "Aristarchus plateau", lat: 26.0, lon: -47.5 },
 ];
 
-const TOOLS = ["LROC_proximity_search","crater_catalog_query","named_feature_lookup","spectral_unit_lookup","topography_query","thermal_inertia_lookup"];
-
-// Words to strip from cloud
-const STOP = new Set("a an the and or but in on at to of for with from by is was are were be been has have had it its this that these those as at if no not also be such cm km m nT".split(" "));
-
-// Color palette for cloud words
-const COLORS = ["#185FA5","#0F6E56","#534AB7","#993C1D","#3B6D11","#854F0B","#A32D2D","#0F6E56","#185FA5","#534AB7"];
-
-// Tool label → short tag shown during loading
-const TOOL_TAGS = {
-  "LROC_proximity_search":  ["LROC","NAC","WAC","imagery","context","morphology","mosaic"],
-  "crater_catalog_query":   ["craters","ejecta","D/d","morphometry","SFD","density","age"],
-  "named_feature_lookup":   ["swirl","dome","rille","scarp","vent","anomaly","feature"],
-  "spectral_unit_lookup":   ["FeO","TiO2","pyroxene","olivine","plagioclase","M3","spectral"],
-  "topography_query":       ["LOLA","elevation","slope","roughness","DEM","relief","topography"],
-  "thermal_inertia_lookup": ["Diviner","TI","regolith","bolometric","thermal","rock abundance"],
+const TOOL_SEEDS = {
+  "LROC_proximity_search":  [{w:"LROC",s:18},{w:"NAC",s:15},{w:"WAC",s:13},{w:"imagery",s:13},{w:"morphology",s:14},{w:"mosaic",s:12}],
+  "crater_catalog_query":   [{w:"craters",s:17},{w:"ejecta",s:15},{w:"morphometry",s:14},{w:"density",s:13},{w:"SFD",s:13},{w:"D/d ratio",s:12}],
+  "named_feature_lookup":   [{w:"named feature",s:18},{w:"swirl",s:16},{w:"dome",s:15},{w:"rille",s:15},{w:"scarp",s:14},{w:"anomaly",s:13}],
+  "spectral_unit_lookup":   [{w:"FeO",s:18},{w:"TiO2",s:16},{w:"pyroxene",s:15},{w:"olivine",s:14},{w:"plagioclase",s:13},{w:"M\u00b3",s:13}],
+  "topography_query":       [{w:"LOLA",s:18},{w:"elevation",s:16},{w:"slope",s:15},{w:"roughness",s:14},{w:"DEM",s:14},{w:"relief",s:12}],
+  "thermal_inertia_lookup": [{w:"Diviner",s:18},{w:"thermal inertia",s:16},{w:"regolith",s:15},{w:"rock abundance",s:13},{w:"bolometric",s:12}],
 };
 
+const COLORS = ["#185FA5","#0F6E56","#534AB7","#993C1D","#3B6D11","#854F0B","#A32D2D","#0e7490"];
+const STOP = new Set("a an the and or but in on at to of for with from by is was are were be been has have had it its this that these those as if no not also such cm km nT per via very over near within about along".split(" "));
+
+const TOOLS = ["LROC_proximity_search","crater_catalog_query","named_feature_lookup","spectral_unit_lookup","topography_query","thermal_inertia_lookup"];
+
 function parseCoords(str) {
-  const parts = str.split(",").map(s => s.trim());
-  if (parts.length !== 2) return null;
-  const la = parseFloat(parts[0]), lo = parseFloat(parts[1]);
-  if (isNaN(la)||isNaN(lo)||la<-90||la>90||lo<-180||lo>180) return null;
-  return { la, lo };
+  const p = str.split(",").map(s=>s.trim());
+  if(p.length!==2) return null;
+  const la=parseFloat(p[0]), lo=parseFloat(p[1]);
+  if(isNaN(la)||isNaN(lo)||la<-90||la>90||lo<-180||lo>180) return null;
+  return {la,lo};
 }
 
 const presetsEl = document.getElementById("presets");
-PRESETS.forEach(p => {
-  const btn = document.createElement("button");
-  btn.className="preset"; btn.textContent=p.label;
+PRESETS.forEach(p=>{
+  const btn=document.createElement("button"); btn.className="preset"; btn.textContent=p.label;
   btn.onclick=()=>{ document.getElementById("coordInput").value=p.lat+", "+p.lon; document.getElementById("coordErr").textContent=""; };
   presetsEl.appendChild(btn);
 });
-document.getElementById("coordInput").addEventListener("keydown", e=>{ if(e.key==="Enter") runAgent(); });
+document.getElementById("coordInput").addEventListener("keydown",e=>{ if(e.key==="Enter") runAgent(); });
 
-// ── Word cloud engine ─────────────────────────────────────────────────────────
+// ── Cloud helpers ─────────────────────────────────────────────────────────────
 
-let placedWords = []; // {x, y, w, h} bounding boxes already placed
+const cloudBox = document.getElementById("cloudBox");
+const seenWords = new Set();
 
 function cloudReset() {
-  placedWords = [];
-  const panel = document.getElementById("cloudPanel");
-  panel.querySelectorAll(".cloud-word").forEach(el => el.remove());
-  document.getElementById("cloudEmpty").style.display = "";
+  seenWords.clear();
+  cloudBox.innerHTML = '<div class="cloud-empty" id="cloudEmpty">Words will appear as the agent runs&hellip;</div>';
 }
 
-function extractWords(text, minLen=4) {
-  return text
-    .replace(/[()[\]{},."';:!?\/\\]/g, " ")
-    .split(/\s+/)
-    .map(w => w.replace(/[^a-zA-Z0-9\-\/]/g,""))
-    .filter(w => w.length >= minLen && !STOP.has(w.toLowerCase()) && !/^\d+$/.test(w));
+async function addWord(text, size, colorIdx) {
+  const key = text.toLowerCase();
+  if (seenWords.has(key)) return;
+  seenWords.add(key);
+
+  const empty = document.getElementById("cloudEmpty");
+  if (empty) empty.remove();
+
+  const el = document.createElement("span");
+  el.className = "cw";
+  el.textContent = text;
+  el.style.fontSize = size + "px";
+  el.style.color = COLORS[colorIdx % COLORS.length];
+  cloudBox.appendChild(el);
+
+  // Trigger transition on next frame
+  await new Promise(r => requestAnimationFrame(r));
+  await new Promise(r => requestAnimationFrame(r));
+  el.classList.add("show");
 }
 
-function scoreWords(words) {
+async function addWordList(words, colorIdx, delay=80) {
+  for (const {w, s} of words) {
+    await addWord(w, s, colorIdx);
+    await new Promise(r => setTimeout(r, delay + Math.random()*60));
+  }
+}
+
+function extractWords(text) {
   const freq = {};
-  words.forEach(w => { const k=w.toLowerCase(); freq[k]=(freq[k]||0)+1; });
-  // dedupe, keep original casing of first occurrence
-  const seen = new Set();
-  const result = [];
-  words.forEach(w => { const k=w.toLowerCase(); if(!seen.has(k)){seen.add(k);result.push({word:w,count:freq[k]});} });
-  return result.sort((a,b)=>b.count-a.count);
+  text.replace(/[()[\]{},."';:!?]/g," ")
+      .split(/\s+/)
+      .map(w=>w.replace(/[^a-zA-Z0-9\/\-]/g,""))
+      .filter(w=>w.length>=4 && !STOP.has(w.toLowerCase()) && !/^\d+$/.test(w))
+      .forEach(w=>{ const k=w.toLowerCase(); if(!freq[k]) freq[k]=[w,0]; freq[k][1]++; });
+  return Object.values(freq)
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,50)
+    .map(([w,c],i)=>({ w, s: Math.min(20, Math.max(10, 10 + Math.floor(c*2) + (i<5?4-i:0))) }));
 }
 
-function overlaps(a, b, pad=4) {
-  return !(a.x+a.w+pad < b.x || b.x+b.w+pad < a.x || a.y+a.h+pad < b.y || b.y+b.h+pad < a.y);
-}
-
-function tryPlace(panel, wordEl, fontSize) {
-  const pw = panel.clientWidth - 24;
-  const ph = panel.clientHeight - 48; // leave room for label
-  wordEl.style.fontSize = fontSize + "px";
-  wordEl.style.opacity = "0";
-  wordEl.style.transform = "scale(1)";
-  panel.appendChild(wordEl);
-  const ww = wordEl.offsetWidth;
-  const wh = wordEl.offsetHeight;
-
-  // Spiral outward from centre
-  const cx = pw / 2 - ww / 2;
-  const cy = ph / 2 - wh / 2 + 28;
-  const maxR = Math.min(pw, ph) * 0.48;
-
-  for (let r = 0; r < maxR; r += 4) {
-    const steps = Math.max(8, Math.floor(2 * Math.PI * r / 6));
-    const angleOffset = Math.random() * Math.PI * 2;
-    for (let i = 0; i < steps; i++) {
-      const angle = angleOffset + (2 * Math.PI * i) / steps;
-      const x = Math.round(cx + r * Math.cos(angle));
-      const y = Math.round(cy + r * Math.sin(angle));
-      if (x < 0 || y < 28 || x + ww > pw || y + wh > ph) continue;
-      const box = { x, y, w: ww, h: wh };
-      if (!placedWords.some(p => overlaps(p, box))) {
-        placedWords.push(box);
-        wordEl.style.left = x + "px";
-        wordEl.style.top  = y + "px";
-        return true;
-      }
-    }
-  }
-  // fallback: remove if no space
-  wordEl.remove();
-  return false;
-}
-
-async function addWordsToCloud(words, colorIdx) {
-  const panel = document.getElementById("cloudPanel");
-  document.getElementById("cloudEmpty").style.display = "none";
-  const color = COLORS[colorIdx % COLORS.length];
-
-  for (let i = 0; i < words.length; i++) {
-    const {word, count} = words[i];
-    const fontSize = Math.min(22, Math.max(10, 10 + count * 3 + (i < 3 ? 6 - i*2 : 0)));
-    const el = document.createElement("span");
-    el.className = "cloud-word";
-    el.textContent = word;
-    el.style.color = color;
-    el.style.fontSize = fontSize + "px";
-
-    const placed = tryPlace(panel, el, fontSize);
-    if (placed) {
-      await new Promise(r => setTimeout(r, 60 + Math.random() * 80));
-      el.classList.add("visible");
-    }
-  }
-}
+function tags(arr,cls){ return arr.map(f=>'<span class="tag '+(cls||"")+'">'+f+'</span>').join(""); }
 
 // ── Agent ─────────────────────────────────────────────────────────────────────
-
-function tags(arr, cls) { return arr.map(f=>'<span class="tag '+(cls||"")+'">'+f+'</span>').join(""); }
 
 async function runAgent() {
   document.getElementById("coordErr").textContent = "";
@@ -285,60 +246,56 @@ async function runAgent() {
   agentErrEl.style.display = "none";
 
   const parsed = parseCoords(document.getElementById("coordInput").value);
-  if (!parsed) { document.getElementById("coordErr").textContent = "Enter as: lat, lon (lat -90 to 90, lon -180 to 180)"; return; }
+  if (!parsed) { document.getElementById("coordErr").textContent = "Enter as: lat, lon (lat -90..90, lon -180..180)"; return; }
   const {la, lo} = parsed;
 
   const btn = document.getElementById("runBtn");
   btn.disabled = true;
-
   cloudReset();
-  document.getElementById("briefingOut").innerHTML = '<p class="empty">Waiting for agent...</p>';
+  document.getElementById("briefingOut").innerHTML = '<p class="empty">Waiting for agent&hellip;</p>';
 
-  // Stream tool-specific keywords while waiting for the server response
+  // Stream seed words tool by tool while server is working
   let toolIdx = 0;
-  const streamInterval = setInterval(async () => {
-    if (toolIdx < TOOLS.length) {
+  let streaming = true;
+  (async () => {
+    while (streaming && toolIdx < TOOLS.length) {
       const t = TOOLS[toolIdx];
-      const words = TOOL_TAGS[t].map(w => ({word: w, count: 1}));
-      await addWordsToCloud(words, toolIdx);
+      await addWordList(TOOL_SEEDS[t], toolIdx, 90);
       toolIdx++;
+      await new Promise(r => setTimeout(r, 200));
     }
-  }, 600);
+  })();
 
   try {
     const resp = await fetch("/query", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lat: la, lon: lo })
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({lat:la, lon:lo})
     });
     const result = await resp.json();
     if (result.error) throw new Error(result.error);
 
-    clearInterval(streamInterval);
+    streaming = false;
 
-    // Extract words from all tool results + briefing and add to cloud
+    // Add words extracted from actual results
     const allText = [
-      ...(result.tools || []).map(t => t.result || ""),
-      result.briefing?.geomorphology || "",
-      result.briefing?.stratigraphy || "",
-      result.briefing?.spectral_mineralogy || "",
-      result.briefing?.topography || "",
-      result.briefing?.named_feature || "",
-      (result.briefing?.notable_features || []).join(" "),
+      ...(result.tools||[]).map(t=>t.result||""),
+      result.briefing?.geomorphology||"",
+      result.briefing?.stratigraphy||"",
+      result.briefing?.spectral_mineralogy||"",
+      result.briefing?.topography||"",
+      result.briefing?.named_feature||"",
+      (result.briefing?.notable_features||[]).join(" "),
     ].join(" ");
 
-    const extracted = scoreWords(extractWords(allText));
-    // Add in batches with slight delay between each word
-    await addWordsToCloud(extracted.slice(0, 60), 7);
+    await addWordList(extractWords(allText), 7, 55);
 
     // Render briefing
-    const b = result.briefing || {};
+    const b = result.briefing||{};
     let html = "";
-    if (result.location_name) html += '<div class="briefing-title">'+result.location_name+' ('+la.toFixed(2)+'&deg;, '+lo.toFixed(2)+'&deg;)</div>';
-    if (b.named_feature) html += '<div class="named-feature-box"><div class="nf-label">Named feature</div><div class="nf-body">'+b.named_feature+'</div></div>';
-    [["Geomorphology",b.geomorphology],["Stratigraphy",b.stratigraphy],
-     ["Spectral mineralogy",b.spectral_mineralogy],["Topography",b.topography]
-    ].forEach(([label,text])=>{
+    if(result.location_name) html+='<div class="briefing-title">'+result.location_name+' ('+la.toFixed(2)+'&deg;, '+lo.toFixed(2)+'&deg;)</div>';
+    if(b.named_feature) html+='<div class="named-feature-box"><div class="nf-label">Named feature</div><div class="nf-body">'+b.named_feature+'</div></div>';
+    [["Geomorphology",b.geomorphology],["Stratigraphy",b.stratigraphy],["Spectral mineralogy",b.spectral_mineralogy],["Topography",b.topography]].forEach(([label,text])=>{
       if(text) html+='<div class="section"><div class="sec-label">'+label+'</div><div class="sec-body">'+text+'</div></div>';
     });
     if(b.notable_features?.length) html+='<div class="section"><div class="sec-label">Notable features</div><div class="tags">'+tags(b.notable_features)+'</div></div>';
@@ -347,8 +304,8 @@ async function runAgent() {
     document.getElementById("briefingOut").innerHTML = html;
 
   } catch(err) {
-    clearInterval(streamInterval);
-    agentErrEl.textContent = "Agent error: " + err.message;
+    streaming = false;
+    agentErrEl.textContent = "Agent error: "+err.message;
     agentErrEl.style.display = "block";
     document.getElementById("briefingOut").innerHTML = '<p class="empty">Briefing unavailable.</p>';
   }
