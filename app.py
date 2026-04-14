@@ -278,6 +278,7 @@ def build_pdf(la, lo, result):
                                      Image, HRFlowable, KeepTogether)
     from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
     from reportlab.platypus.flowables import Flowable
+    from io import BytesIO
     import datetime, tempfile, os
 
     W_page, H_page = letter
