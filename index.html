@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lunar Geology Agent</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 1.5rem; background: #f9f9f7; color: #1a1a1a; }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h2 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
+  .subtitle { font-size: 13px; color: #888; margin: 0 0 1.25rem; }
+
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .preset { font-size: 12px; padding: 4px 10px; border-radius: 6px; background: #f5f5f3; border: 0.5px solid #ddd; color: #555; cursor: pointer; }
+  .preset:hover { background: #eee; }
+
+  .coord-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 4px; align-items: end; }
+  .coord-row label { display: block; font-size: 12px; color: #888; margin-bottom: 4px; }
+  .coord-row input { width: 100%; font-family: monospace; font-size: 13px; border: 0.5px solid #ddd; border-radius: 6px; padding: 7px 10px; background: #fff; }
+  .coord-row input:focus { outline: none; border-color: #aaa; }
+  #runBtn { height: 36px; padding: 0 20px; font-size: 14px; font-weight: 500; background: #fff; border: 0.5px solid #aaa; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+  #runBtn:hover { background: #f5f5f3; }
+  #runBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .err { font-size: 12px; color: #A32D2D; margin-bottom: 8px; min-height: 18px; }
+  .agent-err { font-size: 13px; color: #A32D2D; background: #FCEBEB; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; display: none; }
+
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 640px) { .panels { grid-template-columns: 1fr; } }
+  .panel { background: #fff; border: 0.5px solid #e8e8e5; border-radius: 12px; padding: 1rem; min-height: 300px; }
+  .panel-label { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #aaa; margin-bottom: 12px; }
+
+  .tool-entry { margin-bottom: 12px; }
+  .tool-head { display: flex; align-items: center; gap: 7px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: #B4B2A9; }
+  .dot.running { background: #EF9F27; animation: pulse 0.8s infinite; }
+  .dot.done { background: #1D9E75; }
+  .tool-name { font-family: monospace; font-size: 12px; color: #2563EB; }
+  .tool-name.feature { color: #0F6E56; }
+  .tool-result { font-family: monospace; font-size: 11.5px; color: #666; margin: 3px 0 0 14px; line-height: 1.5; }
+
+  .empty { font-size: 13px; color: #bbb; }
+  .briefing-title { font-size: 15px; font-weight: 500; margin-bottom: 12px; }
+  .named-feature-box { margin-bottom: 12px; background: #F0FDF4; border: 0.5px solid #86EFAC; border-radius: 8px; padding: 8px 10px; }
+  .named-feature-box .nf-label { font-size: 11px; font-weight: 500; color: #166534; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px; }
+  .named-feature-box .nf-body { font-size: 13px; color: #14532D; line-height: 1.6; }
+  .section { margin-bottom: 10px; }
+  .sec-label { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .sec-body { font-size: 13px; color: #222; line-height: 1.6; }
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #EBF3FD; color: #185FA5; border: 0.5px solid #B5D4F4; }
+  .tag.researcher { background: #f5f5f3; color: #555; border-color: #ddd; }
+  .confidence { font-size: 12px; color: #666; background: #f9f9f7; border-radius: 6px; padding: 7px 10px; border-left: 2px solid #ddd; margin-top: 6px; font-style: italic; }
+  .briefing-panel { overflow-y: auto; max-height: 640px; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Lunar geology agent</h2>
+  <p class="subtitle">Enter coordinates → agent chains 6 Python tools → synthesizes geologic briefing</p>
+
+  <div class="presets" id="presets"></div>
+
+  <div class="coord-row">
+    <div>
+      <label for="coordInput">Coordinates — lat, lon (−180 to 180)</label>
+      <input id="coordInput" type="text" value="7.37, -59.02" placeholder="e.g. 7.37, -59.02">
+    </div>
+    <button id="runBtn" onclick="runAgent()">Run agent ↗</button>
+  </div>
+  <div class="err" id="coordErr"></div>
+  <div class="agent-err" id="agentErr"></div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-label">Tool execution trace</div>
+      <div id="toolLog"><p class="empty">Tool calls will appear here…</p></div>
+    </div>
+    <div class="panel briefing-panel">
+      <div class="panel-label">Geologic briefing</div>
+      <div id="briefingOut"><p class="empty">Briefing will appear once tools complete…</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PRESETS = [
+  { label: "Reiner Gamma",        lat: 7.37,  lon: -59.02 },
+  { label: "Cobra Head",          lat: 24.65, lon: -49.24 },
+  { label: "Apollo 11",           lat: 0.67,  lon: 23.47  },
+  { label: "Tycho crater",        lat: -43.31,lon: -11.36 },
+  { label: "Mare Imbrium",        lat: 32.8,  lon: -15.6  },
+  { label: "Aristarchus plateau", lat: 26.0,  lon: -47.5  },
+];
+
+const TOOLS = [
+  "LROC_proximity_search",
+  "crater_catalog_query",
+  "named_feature_lookup",
+  "spectral_unit_lookup",
+  "topography_query",
+  "thermal_inertia_lookup",
+];
+
+function parseCoords(str) {
+  const parts = str.split(",").map(s => s.trim());
+  if (parts.length !== 2) return null;
+  const la = parseFloat(parts[0]), lo = parseFloat(parts[1]);
+  if (isNaN(la) || isNaN(lo)) return null;
+  if (la < -90 || la > 90 || lo < -180 || lo > 180) return null;
+  return { la, lo };
+}
+
+const presetsEl = document.getElementById("presets");
+PRESETS.forEach(p => {
+  const btn = document.createElement("button");
+  btn.className = "preset";
+  btn.textContent = p.label;
+  btn.onclick = () => { document.getElementById("coordInput").value = `${p.lat}, ${p.lon}`; document.getElementById("coordErr").textContent = ""; };
+  presetsEl.appendChild(btn);
+});
+
+document.getElementById("coordInput").addEventListener("keydown", e => { if (e.key === "Enter") runAgent(); });
+
+let lastCoords = null;
+
+function makeToolEl(t) {
+  const div = document.createElement("div"); div.className = "tool-entry"; div.id = "tool-" + t;
+  const head = document.createElement("div"); head.className = "tool-head";
+  const dot = document.createElement("div"); dot.className = "dot";
+  const name = document.createElement("span"); name.className = "tool-name" + (t === "named_feature_lookup" ? " feature" : "");
+  head.appendChild(dot); head.appendChild(name); div.appendChild(head);
+  return div;
+}
+
+function setTool(t, status, result) {
+  const el = document.getElementById("tool-" + t); if (!el) return;
+  el.querySelector(".dot").className = "dot " + status;
+  el.querySelector(".tool-name").textContent = `${t}(${lastCoords ? lastCoords.la.toFixed(2) + ", " + lastCoords.lo.toFixed(2) : "…"})`;
+  if (result) {
+    let res = el.querySelector(".tool-result");
+    if (!res) { res = document.createElement("div"); res.className = "tool-result"; el.appendChild(res); }
+    res.textContent = result;
+  }
+}
+
+function tags(arr, cls) { return arr.map(f => `<span class="tag ${cls||""}">${f}</span>`).join(""); }
+
+async function runAgent() {
+  document.getElementById("coordErr").textContent = "";
+  const agentErrEl = document.getElementById("agentErr");
+  agentErrEl.style.display = "none";
+
+  const parsed = parseCoords(document.getElementById("coordInput").value);
+  if (!parsed) { document.getElementById("coordErr").textContent = "Enter as: lat, lon  (lat −90…90, lon −180…180)"; return; }
+  const { la, lo } = parsed;
+  lastCoords = { la, lo };
+
+  const btn = document.getElementById("runBtn");
+  btn.disabled = true;
+
+  const toolLog = document.getElementById("toolLog");
+  toolLog.innerHTML = "";
+  TOOLS.forEach(t => { toolLog.appendChild(makeToolEl(t)); setTool(t, "pending", null); });
+  document.getElementById("briefingOut").innerHTML = '<p class="empty">Waiting for tool results…</p>';
+
+  // Animate tools as pending while waiting for server
+  let animIdx = 0;
+  const animInterval = setInterval(() => {
+    if (animIdx < TOOLS.length) { setTool(TOOLS[animIdx], "running", null); animIdx++; }
+  }, 300);
+
+  try {
+    const resp = await fetch("/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat: la, lon: lo })
+    });
+    const result = await resp.json();
+    if (result.error) throw new Error(result.error);
+
+    clearInterval(animInterval);
+
+    // Replay tool results with staggered animation
+    for (let i = 0; i < TOOLS.length; i++) {
+      const t = TOOLS[i];
+      setTool(t, "running", null);
+      await new Promise(r => setTimeout(r, 220 + i * 160));
+      const entry = (result.tools || []).find(x => x.tool === t);
+      setTool(t, "done", entry?.result || "No data returned.");
+    }
+
+    const b = result.briefing || {};
+    let html = "";
+    if (result.location_name) html += `<div class="briefing-title">${result.location_name} (${la.toFixed(2)}°, ${lo.toFixed(2)}°)</div>`;
+    if (b.named_feature) html += `<div class="named-feature-box"><div class="nf-label">Named feature</div><div class="nf-body">${b.named_feature}</div></div>`;
+    [["Geomorphology", b.geomorphology], ["Stratigraphy", b.stratigraphy],
+     ["Spectral mineralogy", b.spectral_mineralogy], ["Topography", b.topography]
+    ].forEach(([label, text]) => {
+      if (text) html += `<div class="section"><div class="sec-label">${label}</div><div class="sec-body">${text}</div></div>`;
+    });
+    if (b.notable_features?.length) html += `<div class="section"><div class="sec-label">Notable features</div><div class="tags">${tags(b.notable_features)}</div></div>`;
+    if (b.relevant_researchers?.length) html += `<div class="section"><div class="sec-label">Key researchers</div><div class="tags">${tags(b.relevant_researchers, "researcher")}</div></div>`;
+    if (b.confidence_notes) html += `<div class="confidence">${b.confidence_notes}</div>`;
+    document.getElementById("briefingOut").innerHTML = html;
+
+  } catch (err) {
+    clearInterval(animInterval);
+    TOOLS.forEach(t => setTool(t, "pending", null));
+    agentErrEl.textContent = "Agent error: " + err.message;
+    agentErrEl.style.display = "block";
+    document.getElementById("briefingOut").innerHTML = '<p class="empty">Briefing unavailable.</p>';
+  }
+
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>
