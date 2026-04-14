@@ -3,7 +3,10 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import anthropic
 
-app = Flask(__name__, static_folder="static")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+app = Flask(__name__, static_folder=STATIC_DIR)
 CORS(app)
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -54,12 +57,14 @@ Respond ONLY in valid JSON, no markdown, no preamble:
 
 @app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(STATIC_DIR, "index.html")
 
 
 @app.route("/query", methods=["POST"])
 def query():
     data = request.get_json()
+    if not data:
+        return jsonify({"error": "no JSON body"}), 400
     la = data.get("lat")
     lo = data.get("lon")
     if la is None or lo is None:
